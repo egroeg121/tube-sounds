@@ -5,7 +5,7 @@ TfL is a London agency but its API knows GB-wide National Rail geometry. Fetchin
 all 25 operators live would be ~12 MB per page load, so distil it once into a
 small static asset: a deduped station table plus polylines referencing it.
 """
-import json, urllib.request, concurrent.futures, collections
+import os, json, urllib.request, concurrent.futures, collections
 
 OPERATORS = ['avanti-west-coast','c2c','chiltern-railways','crosscountry',
  'east-midlands-railway','gatwick-express','grand-central','greater-anglia',
@@ -72,7 +72,6 @@ path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'nr-networ
 with open(path, 'w') as f:
     json.dump(out, f, separators=(',', ':'))
 
-import os
 lats = [s[1] for s in out['stations']]
 lons = [s[2] for s in out['stations']]
 print(f"\nstations: {len(out['stations'])}   polylines: {len(compact)}")
