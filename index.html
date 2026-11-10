@@ -216,6 +216,8 @@
 </section>
 
 <script>
+// Escape untrusted (API-supplied) text before it goes into innerHTML.
+const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 // ---- Measured constants -------------------------------------------------
 // Averages over distinct TfL payloads (Sat morning). `typical` = trains of that
 // group sitting in a platform at once; it sets each voice's loudness reference.
@@ -805,7 +807,7 @@ function logLine(kind, line, station) {
   const div = document.createElement('div');
   div.className = kind;
   div.innerHTML = `<span style="color:${LINE_INK[line]}">${kind === 'arr' ? '●' : '○'}</span> ` +
-    `${kind.toUpperCase()} <span style="color:${LINE_INK[line]}">${line}</span> — ${station}`;
+    `${kind.toUpperCase()} <span style="color:${LINE_INK[line]}">${line}</span> — ${esc(station)}`;
   logEl.prepend(div);
   while (logEl.children.length > 60) logEl.lastChild.remove();
 }
@@ -1086,7 +1088,7 @@ async function devLoad() {
         id: x.stationId || x.id, name: (x.name || '').replace(' Underground Station', ''),
       })));
     devBranchSel.innerHTML = devBranches.map((b, i) =>
-      `<option value="${i}">${b.length} stops: ${b[0]?.name} → ${b[b.length - 1]?.name}</option>`).join('');
+      `<option value="${i}">${b.length} stops: ${esc(b[0]?.name)} → ${esc(b[b.length - 1]?.name)}</option>`).join('');
     if (devBranchIdx >= devBranches.length) devBranchIdx = 0;
     devBranchSel.value = devBranchIdx;
     devPreds = arr.preds; devAge = arr.age;
@@ -1246,10 +1248,10 @@ function devShow(i) {
 
   const rows = inbound.map(t => {
     const p = t.p;
-    return `<tr><td>${p.vehicleId}</td><td>${p.timeToStation}s</td>` +
-      `<td>${(p.expectedArrival || '').slice(11, 19)}</td>` +
-      `<td>${p.platformName || '—'}</td><td>${p.destinationName?.replace(' Underground Station', '') || '—'}</td>` +
-      `<td style="max-width:22rem;white-space:normal">${p.currentLocation || '<i>(empty)</i>'}</td></tr>`;
+    return `<tr><td>${esc(p.vehicleId)}</td><td>${esc(p.timeToStation)}s</td>` +
+      `<td>${esc((p.expectedArrival || '').slice(11, 19))}</td>` +
+      `<td>${esc(p.platformName || '—')}</td><td>${esc(p.destinationName?.replace(' Underground Station', '') || '—')}</td>` +
+      `<td style="max-width:22rem;white-space:normal">${p.currentLocation ? esc(p.currentLocation) : '<i>(empty)</i>'}</td></tr>`;
   }).join('');
 
   let derived = '<i>No coordinates for this stop, so it cannot be sonified.</i>';
@@ -1285,9 +1287,9 @@ function devShow(i) {
 
   devDetail.innerHTML =
     `<h3><span class="pill" style="background:${LINE_COLOUR[devLine]};` +
-    `${devLine === 'northern' ? '' : ''}">${devLine}</span> ${stop.name}</h3>` +
+    `${devLine === 'northern' ? '' : ''}">${devLine}</span> ${esc(stop.name)}</h3>` +
     `<div>Feed says <b>${here.length}</b> train(s) sitting here right now` +
-    (here.length ? `: ${here.map(t => `<code>${t.p.vehicleId}</code>`).join(', ')}` : '') + `.</div>` +
+    (here.length ? `: ${here.map(t => `<code>${esc(t.p.vehicleId)}</code>`).join(', ')}` : '') + `.</div>` +
     (rows ? `<table><tr><th>train</th><th>due in</th><th>expected</th><th>platform</th>` +
             `<th>destination</th><th>currentLocation (raw)</th></tr>${rows}</table>`
           : `<div style="margin-top:.4rem"><i>No predictions currently reference this station.</i></div>`) +
@@ -1373,7 +1375,7 @@ async function railLoad() {
     const lab = document.createElement('label');
     lab.className = 'line';
     lab.innerHTML = `<input type="checkbox" ${railOn[o] ? 'checked' : ''}>` +
-      `<span class="sw" style="background:${TOC_COLOUR[o] || '#888'}"></span>${o}`;
+      `<span class="sw" style="background:${TOC_COLOUR[o] || '#888'}"></span>${esc(o)}`;
     lab.querySelector('input').onchange = e => { railOn[o] = e.target.checked; railDraw(); };
     box.appendChild(lab);
   }
@@ -1444,7 +1446,7 @@ const railCfg = () => ({base: (localStorage.getItem('nrBase') || '').replace(/\/
 function railLog(txt, colour) {
   if (railLogEl.textContent === 'No live data yet.') railLogEl.textContent = '';
   const d = document.createElement('div');
-  d.innerHTML = `<span style="color:${colour}">●</span> ${txt}`;
+  d.innerHTML = `<span style="color:${colour}">●</span> ${esc(txt)}`;
   railLogEl.prepend(d);
   while (railLogEl.children.length > 80) railLogEl.lastChild.remove();
 }

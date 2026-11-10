@@ -68,7 +68,7 @@ out = {
     'stations': [stations[sid] for sid in order],
     'routes': compact,
 }
-path = '/home/george/projects/tube-sounds/nr-network.json'
+path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'nr-network.json')
 with open(path, 'w') as f:
     json.dump(out, f, separators=(',', ':'))
 
