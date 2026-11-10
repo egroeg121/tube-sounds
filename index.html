@@ -1,0 +1,1526 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tube Sounds — the London Underground, sonified</title>
+<style>
+  body { background:#ffffff; color:#1c1c1c; font-family: system-ui, sans-serif; margin:0; padding:1rem; }
+  h1 { font-size:1.05rem; font-weight:600; margin:0 0 .6rem; }
+  #controls { display:flex; flex-wrap:wrap; gap:1rem; align-items:flex-start; margin-bottom:.7rem; }
+  .group { display:flex; flex-direction:column; gap:.25rem; }
+  .group > .lab { font-size:.68rem; text-transform:uppercase; letter-spacing:.06em; color:#6b6b6b; }
+  .seg { display:inline-flex; border:1px solid #c4c4c4; border-radius:6px; overflow:hidden; }
+  .seg button { background:#f4f4f4; color:#444; border:0; border-right:1px solid #c4c4c4;
+                padding:.4rem .8rem; font-size:.85rem; cursor:pointer; }
+  .seg button:last-child { border-right:0; }
+  .seg button.on { background:#0019a8; color:#fff; }         /* TfL corporate blue */
+  button.act { background:#f4f4f4; color:#1c1c1c; border:1px solid #b8b8b8; border-radius:6px;
+               padding:.45rem 1rem; font-size:.95rem; cursor:pointer; }
+  button.act:hover { background:#e8e8e8; }
+  #stats, #audioStatus { font-size:.78rem; font-family:ui-monospace,monospace; color:#5c5c5c; }
+  #audioStatus { color:#1d7a44; margin-bottom:.25rem; }
+  #legend { font-size:.74rem; color:#666; margin-bottom:.6rem; max-width:58rem; line-height:1.5; }
+  #legend strong { color:#1c1c1c; font-weight:600; }
+  #audioStatus.bad { color:#c0271e; }
+  #hint { font-size:.78rem; color:#2b4c36; background:#eef7f0; border-left:3px solid #1d7a44;
+          padding:.45rem .7rem; border-radius:0 4px 4px 0; margin:.1rem 0 .7rem; max-width:58rem; line-height:1.5; }
+  label.line { display:inline-flex; align-items:center; gap:.3rem; font-size:.75rem;
+               padding:.15rem .45rem; border-radius:4px; background:#f2f2f2; cursor:pointer; }
+  label.line span.sw { width:.8rem; height:.8rem; border-radius:50%; display:inline-block;
+                       border:1px solid rgba(0,0,0,.25); }
+  #wrap { display:flex; gap:1rem; flex-wrap:wrap; align-items:flex-start; }
+  canvas { background:#ffffff; border:1px solid #e0e0e0; border-radius:8px; display:block; max-width:100%; }
+  #log { width:24rem; max-width:92vw; height:430px; overflow-y:auto;
+         font:.72rem/1.5 ui-monospace,monospace; background:#fafafa; border:1px solid #e6e6e6;
+         border-radius:8px; padding:.5rem .7rem; }
+  .dep { opacity:.6 }
+  table { border-collapse:collapse; font-size:.78rem; }
+  td { padding:.16rem .5rem .16rem 0; white-space:nowrap; vertical-align:middle; }
+  td.nm { font-weight:600; } td.nt { color:#777; font-family:ui-monospace,monospace; }
+  td.ct { color:#444; font-family:ui-monospace,monospace; text-align:right; width:3rem; }
+  .barwrap { width:min(44vw,380px); height:12px; background:#ededed; border-radius:3px; overflow:hidden; }
+  .bar { height:100%; width:0; border-radius:3px; transition:width .5s ease-out; }
+  .hidden { display:none !important; }
+  #devMap { cursor:pointer; width:100%; max-width:1300px; }
+  #devDetail { margin-top:.8rem; font-size:.8rem; line-height:1.55; max-width:70rem; }
+  #devDetail h3 { font-size:.92rem; margin:.2rem 0 .4rem; }
+  #devDetail table { width:100%; max-width:70rem; }
+  #devDetail th { text-align:left; font-size:.7rem; text-transform:uppercase; letter-spacing:.04em;
+                  color:#777; border-bottom:1px solid #e0e0e0; padding:.2rem .5rem .2rem 0; }
+  #devDetail td { padding:.22rem .5rem .22rem 0; border-bottom:1px solid #f0f0f0;
+                  font-family:ui-monospace,monospace; font-size:.74rem; }
+  #devDetail .derived { background:#f6f8fc; border:1px solid #dde3ef; border-radius:6px;
+                        padding:.5rem .7rem; margin-top:.6rem; }
+  #devDetail code { background:#f2f2f2; padding:.05rem .25rem; border-radius:3px; }
+  .pill { display:inline-block; padding:.05rem .4rem; border-radius:10px; font-size:.68rem;
+          color:#fff; font-family:system-ui,sans-serif; }
+</style>
+</head>
+<body>
+<h1>🚇 Tube Sounds — the London Underground, sonified</h1>
+
+<div class="seg" id="tabBar" style="margin-bottom:.8rem">
+  <button data-tab="sound" class="on">Sound</button><button data-tab="dev">Line inspector</button><button data-tab="rail">National Rail</button>
+</div>
+
+<section id="tab-sound">
+<div id="controls">
+  <div class="group">
+    <span class="lab">Sound</span>
+    <span class="seg" id="modeSeg">
+      <button data-v="ping" class="on">Pings</button><button data-v="sustain">Held notes</button>
+    </span>
+  </div>
+  <div class="group">
+    <span class="lab">Pitch from</span>
+    <span class="seg" id="pitchSeg">
+      <button data-v="geo" class="on">Station latitude</button><button data-v="line">Tube line</button><button data-v="key">Line key + position</button>
+    </span>
+  </div>
+  <div class="group">
+    <span class="lab">Tone balance</span>
+    <span style="display:flex;gap:.5rem;align-items:center">
+      <canvas id="eqCurve" width="120" height="42"
+              style="border:1px solid #e0e0e0;border-radius:4px;background:#fafafa"></canvas>
+      <span style="display:flex;flex-direction:column;gap:.1rem;font-size:.62rem;color:#777">
+        <label>low <input type="range" id="eqLo" min="0" max="150" value="80" style="width:5.5rem"></label>
+        <label>mid <input type="range" id="eqMid" min="0" max="150" value="100" style="width:5.5rem"></label>
+        <label>high <input type="range" id="eqHi" min="0" max="150" value="45" style="width:5.5rem"></label>
+      </span>
+    </span>
+  </div>
+  <div class="group">
+    <span class="lab">Controls</span>
+    <span>
+      <button class="act" id="startBtn">▶ Start</button>
+      <button class="act" id="testBtn">🔊 Test</button>
+    </span>
+  </div>
+  <div class="group">
+    <span class="lab">Volume</span>
+    <input type="range" id="vol" min="0" max="100" value="65">
+  </div>
+  <div class="group">
+    <span class="lab">Pitch range <span id="rangeLab">4</span> octaves</span>
+    <input type="range" id="range" min="1.5" max="6" step="0.5" value="4">
+  </div>
+  <div class="group">
+    <span class="lab">Scale</span>
+    <select id="scale" style="padding:.35rem;font-size:.85rem;border:1px solid #c4c4c4;border-radius:6px"></select>
+  </div>
+  <div class="group" id="thinGroup">
+    <span class="lab">Thin out (held notes)</span>
+    <input type="range" id="thin" min="0" max="80" value="0">
+  </div>
+  <div class="group">
+    <span class="lab">Clear a train after <span id="holdLab">60</span>s</span>
+    <input type="range" id="hold" min="20" max="300" step="10" value="60">
+  </div>
+</div>
+
+<div id="hint"></div>
+<div style="margin-bottom:.5rem" id="lineToggles"></div>
+<div id="stats">idle</div>
+<div id="audioStatus">audio: not started</div>
+<div id="legend">Map: coloured lines are the routes in official TfL colours (Northern is black) ·
+  a filled dot is a station holding a train — <strong>bigger = more trains there at once</strong>
+  (interchanges stack up), coloured by the most recent arrival, fading as it nears the clear timeout.</div>
+
+<div id="wrap">
+  <canvas id="map" width="620" height="430"></canvas>
+  <div id="log"></div>
+  <table id="bars" class="hidden"></table>
+</div>
+</section>
+
+<section id="tab-dev" class="hidden">
+  <div id="controls" style="align-items:center">
+    <div class="group">
+      <span class="lab">Line</span>
+      <select id="devLine" style="padding:.4rem;font-size:.9rem;border:1px solid #c4c4c4;border-radius:6px"></select>
+    </div>
+    <div class="group">
+      <span class="lab">Branch</span>
+      <select id="devBranch" style="padding:.4rem;font-size:.9rem;border:1px solid #c4c4c4;border-radius:6px;max-width:26rem"></select>
+    </div>
+    <div class="group">
+      <span class="lab">&nbsp;</span>
+      <button class="act" id="devRefresh">↻ Refresh now</button>
+    </div>
+    <div class="group">
+      <span class="lab">Auto-refresh</span>
+      <label style="font-size:.8rem"><input type="checkbox" id="devAuto" checked> every 15s</label>
+    </div>
+  </div>
+  <div id="hint">Line inspector: one line, laid out in route order. Each train from the live feed is
+    placed by its <code>currentLocation</code> text — on a station when it reads "At X", between two
+    when it reads "Between X and Y". <strong>Click any station</strong> to see the raw predictions
+    there and exactly what the sonification derives from them.</div>
+  <div id="devStats" style="font-size:.78rem;font-family:ui-monospace,monospace;color:#5c5c5c;margin-bottom:.5rem">idle</div>
+  <canvas id="devMap" width="1100" height="230"></canvas>
+  <div id="devDetail">Click a station above.</div>
+</section>
+
+<section id="tab-rail" class="hidden">
+  <div id="controls" style="align-items:center">
+    <div class="group">
+      <span class="lab">Controls</span>
+      <span>
+        <button class="act" id="railStart">▶ Start listening</button>
+        <button class="act" id="railFit">⤢ Fit map</button>
+      </span>
+    </div>
+    <div class="group">
+      <span class="lab">Operators</span>
+      <span>
+        <button class="act" id="railAll" style="padding:.25rem .7rem;font-size:.8rem">all</button>
+        <button class="act" id="railNone" style="padding:.25rem .7rem;font-size:.8rem">none</button>
+      </span>
+    </div>
+  </div>
+  <div id="hint">National Rail: the whole GB network, 2,432 stations and 1,097 route
+    sections, built from TfL's route data (which covers National Rail geometry UK-wide even
+    though TfL is a London agency). <strong>Live train data needs a free one-off token</strong>
+    — see the box below. Without one the map is static.</div>
+  <div id="railToggles" style="margin-bottom:.5rem"></div>
+  <div id="railStats" style="font-size:.78rem;font-family:ui-monospace,monospace;color:#5c5c5c;margin-bottom:.5rem">idle</div>
+  <div id="wrap">
+    <canvas id="railMap" width="900" height="900"></canvas>
+    <div>
+      <div id="railToken" style="max-width:26rem;font-size:.78rem;line-height:1.6;background:#fff8e6;
+           border:1px solid #f0d89a;border-radius:6px;padding:.6rem .8rem">
+        <b>Live data needs a free Darwin token</b><br>
+        There is no keyless live feed for National Rail. Get a free Consumer key from
+        <a href="https://raildata.org.uk" target="_blank" rel="noopener">raildata.org.uk</a>
+        (Live Departure Board Web Service, free tier), then paste it here.
+        <div style="margin-top:.5rem;display:flex;flex-direction:column;gap:.3rem">
+          <input id="railBase" placeholder="Huxley2 base URL"
+                 value="https://national-rail-api.davwheat.dev"
+                 style="padding:.3rem;border:1px solid #ccc;border-radius:4px;font-size:.75rem">
+          <input id="railKey" placeholder="access token" type="password"
+                 style="padding:.3rem;border:1px solid #ccc;border-radius:4px;font-size:.75rem">
+          <button class="act" id="railSave" style="padding:.25rem .7rem;font-size:.8rem">Save &amp; test</button>
+        </div>
+        <div id="railKeyMsg" style="margin-top:.4rem;color:#7a5c00"></div>
+        <div style="margin-top:.5rem;font-size:.72rem;color:#8a6d1f">
+          Note: the public Huxley2 instances were returning HTTP 500 when last checked,
+          so you may need to run your own. This path is <b>untested</b> — I have no token.
+        </div>
+      </div>
+      <div id="railLog" style="width:26rem;max-width:92vw;height:360px;overflow-y:auto;margin-top:.6rem;
+           font:.72rem/1.5 ui-monospace,monospace;background:#fafafa;border:1px solid #e6e6e6;
+           border-radius:8px;padding:.5rem .7rem">No live data yet.</div>
+    </div>
+  </div>
+</section>
+
+<script>
+// ---- Measured constants -------------------------------------------------
+// Averages over distinct TfL payloads (Sat morning). `typical` = trains of that
+// group sitting in a platform at once; it sets each voice's loudness reference.
+// `colour` is the official TfL line colour. Busiest first.
+// `typical` = mean trains of that group in a platform at once, re-measured under
+// the CURRENT occupancy model (scheduled arrivals + the stay timer). The original
+// figures came from the old snapshot-diffing model and ran 1.1-3.3x too low, which
+// pinned busy groups at full volume permanently and killed the dynamics. These are
+// only seeds now — see adaptTypicals().
+const LINE_DATA = [
+  {id:'northern',         colour:'#000000', typical:49.4},
+  {id:'central',          colour:'#E32017', typical:30.4},
+  {id:'jubilee',          colour:'#A0A5A9', typical:32.3},
+  {id:'victoria',         colour:'#0098D4', typical:16.1},
+  {id:'hammersmith-city', colour:'#F3A9BB', typical:15.2},
+  {id:'district',         colour:'#00782A', typical:25.4},
+  {id:'metropolitan',     colour:'#9B0056', typical:11.4},
+  {id:'bakerloo',         colour:'#B36305', typical:13.0},
+  {id:'piccadilly',       colour:'#003688', typical:32.6},
+  {id:'circle',           colour:'#FFD300', typical:3.4},
+  {id:'waterloo-city',    colour:'#95CDBA', typical:1.4},
+];
+const LINE_IDS = LINE_DATA.map(l => l.id);
+// On white, the official palette works as-is — including Northern's black, which
+// on a dark background had to be faked as white and was unidentifiable.
+const LINE_COLOUR = Object.fromEntries(LINE_DATA.map(l => [l.id, l.colour]));
+// Small text in Circle yellow or H&C pink is unreadable on white, so labels use a
+// darkened variant. Hue is preserved, only lightness drops, so it still reads as
+// that line's colour. Map geometry keeps the exact official values.
+function ink(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  let r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  if (lum <= 0.55) return hex;
+  const k = Math.min(0.55, (lum - 0.5) * 1.2);
+  r = Math.round(r * (1 - k)); g = Math.round(g * (1 - k)); b = Math.round(b * (1 - k));
+  return '#' + ((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1);
+}
+const LINE_INK = Object.fromEntries(LINE_DATA.map(l => [l.id, ink(l.colour)]));
+const LINE_IDX = Object.fromEntries(LINE_IDS.map((l, i) => [l, i]));
+// Dwelling trains per latitude band, 0 = southernmost .. 14 = northernmost.
+// Band 5 is central London and dominates; 13-14 are effectively empty.
+const BAND_TYPICAL = [2.3, 2.1, 3.2, 7.7, 28.5, 58.4, 49.1, 23.7, 17.6, 15.0, 10.0, 4.0, 1.7, 1.0, 0.5];
+const N_BANDS = BAND_TYPICAL.length;
+
+const POLL_MS = 20000;          // refresh the schedule (data itself changes ~60s)
+const FETCH_TIMEOUT_MS = 15000;
+const TICK_MS = 100;            // how finely scheduled events are fired
+const HORIZON_MS = 150000;      // only schedule arrivals this far ahead
+// TfL quantises timeToStation onto a 30s grid: bucketing real predictions into
+// 10s bins gives 0,34,17,0,38,24,0,41,11,... — every third bin is empty. Playing
+// those values literally reproduces the grid as an audible stutter. Spreading
+// each arrival across the step it was rounded into is within the feed's own
+// precision, and is what makes the stream continuous.
+const QUANT_MS = 30000;
+// NB: a train's stay is governed solely by the "clear a train after Ns" slider
+// (see pruneOccupancy). Having a second, shorter dwell timer as well made every
+// departure fire twice and let occupancy drift above what the feed actually
+// shows, so there is deliberately only one expiry path.
+const AT_RE = /^At (.+?)(?: Platform.*)?$/;
+const ROOT_HZ = 110;
+// Fewer notes per octave = wider spacing and safer harmony; more = finer
+// resolution but far more chance of two lines clashing. The gapped scales
+// (pentatonics, hirajoshi) have no semitone steps, so simultaneous notes cannot
+// grind; whole-tone and chromatic deliberately can.
+const SCALES = {
+  'major pentatonic':  [0, 2, 4, 7, 9],
+  'minor pentatonic':  [0, 3, 5, 7, 10],
+  'hirajoshi (japanese)': [0, 2, 3, 7, 8],
+  'blues':             [0, 3, 5, 6, 7, 10],
+  'whole tone':        [0, 2, 4, 6, 8, 10],
+  'major (ionian)':    [0, 2, 4, 5, 7, 9, 11],
+  'natural minor':     [0, 2, 3, 5, 7, 8, 10],
+  'dorian':            [0, 2, 3, 5, 7, 9, 10],
+  'lydian':            [0, 2, 4, 6, 7, 9, 11],
+  'phrygian':          [0, 1, 3, 5, 7, 8, 10],
+  'octatonic':         [0, 2, 3, 5, 6, 8, 9, 11],
+  'chromatic':         [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+};
+let SCALE = SCALES['major pentatonic'];
+// One pitch mapping for all three modes, so the range control governs them all.
+// p is 0..1 across whatever the mode measures; rot rotates which degree of the
+// scale you land on WITHOUT changing register, so lines differ in note but not
+// in height.
+const rangeOct = () => +document.getElementById('range').value;
+function pitchAt(p, rot = 0) {
+  const steps = Math.max(2, Math.round(rangeOct() * SCALE.length));
+  const i = Math.round(Math.max(0, Math.min(1, p)) * (steps - 1));
+  const deg = SCALE[(((i + rot) % SCALE.length) + SCALE.length) % SCALE.length];
+  return ROOT_HZ * Math.pow(2, (deg + 12 * Math.floor(i / SCALE.length)) / 12);
+}
+const geoFreq = band => pitchAt(band / (N_BANDS - 1));
+const lineFreq = idx => pitchAt(LINE_SLOTS[idx] / (LINE_DATA.length - 1));
+
+// --- "Line key + position" pitching --------------------------------------
+// Every line draws from the SAME A-major-pentatonic collection, so any two lines
+// sounding together are consonant by construction. What differs per line is the
+// rotation — which degree of the scale it starts on — so each has its own mode
+// and its own melodic colour without any risk of a clash.
+const keyPitch = (lineIdx, p) => pitchAt(p, lineIdx % SCALE.length);
+// Position on a south-west → north-east diagonal, normalised over the whole
+// network so geography maps to absolute pitch: Morden low, Epping/Cockfosters high.
+function nePos(st) {
+  const la = (st.lat - bounds.latMin) / (bounds.latMax - bounds.latMin);
+  const lo = (st.lon - bounds.lonMin) / (bounds.lonMax - bounds.lonMin);
+  return (la + lo) / 2;
+}
+
+// --- Tone balance ---------------------------------------------------------
+// Three-point curve over the register. Extremes are attenuated by default: the
+// top of the range is perceptually much brighter, and with a dozen notes running
+// it is the highs that turn a chord into a shriek.
+const eqVal = id => document.getElementById(id).value / 100;
+// Three real bands, each flat across its third of the register with a short
+// crossfade between. Interpolating between three POINTS instead meant a slider
+// at zero only silenced one exact frequency; with bands, low/mid/high at zero
+// genuinely mutes that whole part of the range.
+const eqPos = freq => Math.max(0, Math.min(1, Math.log2(freq / ROOT_HZ) / rangeOct()));
+function eqGain(freq) {
+  const p = eqPos(freq);
+  const lo = eqVal('eqLo'), mid = eqVal('eqMid'), hi = eqVal('eqHi');
+  const B = 1 / 3, w = 0.07;                       // band edge, crossfade half-width
+  const smooth = (a, b, t) => a + (b - a) * (t * t * (3 - 2 * t));
+  if (p < B - w) return lo;
+  if (p < B + w) return smooth(lo, mid, (p - (B - w)) / (2 * w));
+  if (p < 2 * B - w) return mid;
+  if (p < 2 * B + w) return smooth(mid, hi, (p - (2 * B - w)) / (2 * w));
+  return hi;
+}
+function drawEq() {
+  const c = document.getElementById('eqCurve'), g = c.getContext('2d');
+  g.clearRect(0, 0, c.width, c.height);
+  const y = v => c.height - (v / 1.5) * (c.height - 4) - 2;
+  g.strokeStyle = '#ddd'; g.lineWidth = 1;
+  g.beginPath(); g.moveTo(0, y(1)); g.lineTo(c.width, y(1)); g.stroke();
+  g.strokeStyle = '#0019a8'; g.lineWidth = 1.5; g.beginPath();
+  for (let x = 0; x <= c.width; x++) {
+    const f = ROOT_HZ * Math.pow(2, rangeOct() * x / c.width);
+    x ? g.lineTo(x, y(eqGain(f))) : g.moveTo(x, y(eqGain(f)));
+  }
+  g.stroke();
+}
+
+// ---- State --------------------------------------------------------------
+let mode = 'ping', pitchMode = 'geo';
+let audio, master, silentEl, soundsPlayed = 0, voices = 0;
+let running = false, pollTimer, tickTimer;
+let stations = {}, routes = [], bounds = {latMin:51.40, latMax:51.71, lonMin:-0.62, lonMax:0.26};
+let lastPayloadTs = '', lastReply = 0, lastFresh = 0;
+let groups = [], groupOfLine = {}, flashes = [];
+// Each group's learned normal occupancy, kept across pitch-mode rebuilds.
+let learnedTypical = new Map();
+const enabled = Object.fromEntries(LINE_IDS.map(l => [l, true]));
+
+// Arrivals we know are coming, keyed line|vehicle|naptan -> {at, line, nap, station}.
+// This is the heart of the timing: the feed predicts each train's next ~11 stops
+// to the second, so events play continuously instead of in one clump per refresh.
+let schedule = new Map();
+let fired = new Map();                 // same key -> when, so a refresh can't replay it
+let atStation = new Map();             // trainKey -> {nap, enteredAt, line} (a train is in one place)
+let expired = new Map();               // trainKey -> naptanId already timed out; don't relight
+let eventTimes = [];
+const holdMs = () => document.getElementById('hold').value * 1000;
+
+const statsEl = document.getElementById('stats');
+const hintEl = document.getElementById('hint');
+const logEl = document.getElementById('log');
+const barsEl = document.getElementById('bars');
+const canvas = document.getElementById('map'), ctx = canvas.getContext('2d');
+
+// ---- Group / pitch layout ----------------------------------------------
+function centreOutOrder(n) {
+  const mid = Math.floor((n - 1) / 2), order = [mid];
+  for (let d = 1; order.length < n; d++) {
+    if (mid - d >= 0) order.push(mid - d);
+    if (order.length < n && mid + d <= n - 1) order.push(mid + d);
+  }
+  return order;
+}
+function bandOf(lat) {
+  const f = (lat - bounds.latMin) / (bounds.latMax - bounds.latMin);
+  return Math.max(0, Math.min(N_BANDS - 1, Math.round(f * (N_BANDS - 1))));
+}
+// Trains are ALWAYS summed into these groups, never given a voice each — that is
+// what keeps ~147 dwelling trains down to 11-15 simultaneous notes.
+function defineGroups() {
+  if (pitchMode === 'key') {
+    // One voice per line, as in 'line' mode — but its pitch glides to follow the
+    // average position of that line's trains, so a whole line audibly drifts up
+    // as its traffic moves north-east. Keeps the voice count at 11.
+    groups = LINE_DATA.map((l, i) => ({
+      key: l.id, label: l.id, colour: l.colour, labelColour: LINE_INK[l.id],
+      typical: learnedTypical.get(l.id) ?? l.typical, slot: i, dynamic: true, count: 0, level: 0,
+      freq: keyPitch(i, .5), note: freqName(keyPitch(i, .5)),
+      pan: (i / (LINE_DATA.length - 1)) * 1.4 - .7,
+    }));
+    groupOfLine = Object.fromEntries(groups.map(g => [g.key, g]));
+    buildBars();
+    return;
+  }
+  if (pitchMode === 'line') {
+    const slots = centreOutOrder(LINE_DATA.length);
+    groups = LINE_DATA.map((l, i) => ({
+      key: l.id, label: l.id, colour: l.colour, labelColour: LINE_INK[l.id],
+      typical: learnedTypical.get(l.id) ?? l.typical, slot: slots[i], count: 0, level: 0,
+    }));
+  } else {
+    groups = BAND_TYPICAL.map((t, b) => ({
+      key: 'b' + b, label: `band ${b}${b === 0 ? ' (south)' : b === N_BANDS - 1 ? ' (north)' : ''}`,
+      colour: `hsl(${212 - b * 11}, 68%, ${38 + b * 2}%)`,
+      typical: learnedTypical.get('b' + b) ?? Math.max(0.5, t),
+      slot: b, count: 0, level: 0,
+    }));
+  }
+  const maxSlot = Math.max(...groups.map(g => g.slot)) || 1;
+  for (const g of groups) {
+    g.freq = pitchAt(g.slot / maxSlot); g.note = freqName(g.freq);
+    g.pan = (g.slot / maxSlot) * 1.4 - 0.7;
+  }
+  groupOfLine = Object.fromEntries(groups.map(g => [g.key, g]));
+  buildBars();
+}
+function groupFor(line, naptanId) {
+  if (pitchMode !== 'geo') return groupOfLine[line] || null;   // 'line' and 'key' key by line
+  const st = stations[naptanId];
+  return st ? groupOfLine['b' + bandOf(st.lat)] : null;
+}
+// Octave numbers increment at C, not at A. Numbering them from the A root gave
+// labels an octave low for every note from C upward (370Hz printed as "F#3").
+const CHROMA = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+function freqName(f) {
+  const midi = 45 + Math.round(12 * Math.log2(f / ROOT_HZ));   // ROOT_HZ = A2 = MIDI 45
+  return CHROMA[((midi % 12) + 12) % 12] + (Math.floor(midi / 12) - 1);
+}
+// Glide each line's held note toward the mean position of its dwelling trains.
+function updateKeyPitches() {
+  if (!audio || pitchMode !== 'key') return;
+  const t = audio.currentTime;
+  groups.forEach((g, i) => {
+    if (!g.oscs || !g.count) return;
+    const f = keyPitch(i, g.posSum / g.count);
+    if (Math.abs(f - g.freq) < .01) return;
+    g.freq = f; g.note = freqName(f);
+    const last = g.oscs.length - 1;
+    g.oscs.forEach((o, k) => o.frequency.setTargetAtTime(k === last ? f * 2 : f, t, 1.2));
+    const nt = document.getElementById('nt-' + g.key);
+    if (nt) nt.textContent = g.note;
+  });
+}
+function buildBars() {
+  barsEl.innerHTML = '';
+  for (const g of groups) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td class="nm" style="color:${g.labelColour || g.colour}">${g.label}</td>` +
+      `<td class="nt" id="nt-${g.key}">${g.note}</td><td class="ct" id="ct-${g.key}">0</td>` +
+      `<td><div class="barwrap"><div class="bar" id="bar-${g.key}" style="background:${g.colour}"></div></div></td>`;
+    barsEl.appendChild(tr);
+  }
+}
+
+// ---- UI -----------------------------------------------------------------
+const togglesEl = document.getElementById('lineToggles');
+for (const l of LINE_IDS) {
+  const lab = document.createElement('label');
+  lab.className = 'line';
+  lab.innerHTML = `<input type="checkbox" checked><span class="sw" style="background:${LINE_COLOUR[l]}"></span>${l}`;
+  lab.querySelector('input').onchange = e => { enabled[l] = e.target.checked; recount(); applyLevels(); };
+  togglesEl.appendChild(lab);
+}
+const PITCH_DESC = {
+  geo: 'station latitude (south = low, north = high)',
+  line: 'tube line (busiest lines centred in the register)',
+  key: 'position along a south-west → north-east axis, each line in its own mode '
+     + 'of one shared pentatonic so the lines always agree',
+};
+function setHint() {
+  const grouping = pitchMode === 'geo' ? 'one per latitude band' : 'one per line';
+  hintEl.textContent = mode === 'sustain'
+    ? `Held notes: ~147 trains sit in platforms at once, so each train does NOT get its own voice — `
+      + `they are summed into ${groups.length} notes (${grouping}). A note swells as trains arrive `
+      + `and fades as they leave. Pitch: ${PITCH_DESC[pitchMode]}.`
+      + (pitchMode === 'key' ? ' Each line\'s note glides to follow its trains.' : '')
+      + ` "Thin out" silences the quieter notes.`
+    : `Pings: a bell per arrival, a pluck per departure, pitched by ${PITCH_DESC[pitchMode]}, `
+      + `panned west-to-east. Each plays at its own predicted arrival time.`;
+}
+function syncSegs() {
+  for (const b of document.querySelectorAll('#modeSeg button')) b.classList.toggle('on', b.dataset.v === mode);
+  for (const b of document.querySelectorAll('#pitchSeg button')) b.classList.toggle('on', b.dataset.v === pitchMode);
+  barsEl.classList.toggle('hidden', mode !== 'sustain');      // map + arrivals list show in both modes
+  document.getElementById('thinGroup').style.opacity = mode === 'sustain' ? 1 : .35;
+  setHint();
+}
+document.getElementById('modeSeg').onclick = e => {
+  if (!e.target.dataset.v || e.target.dataset.v === mode) return;
+  mode = e.target.dataset.v;
+  if (audio) { silenceAll(); if (mode === 'sustain') applyLevels(); }
+  syncSegs();
+};
+document.getElementById('pitchSeg').onclick = e => {
+  if (!e.target.dataset.v || e.target.dataset.v === pitchMode) return;
+  pitchMode = e.target.dataset.v;
+  teardownVoices(); defineGroups();
+  if (audio) { buildVoices(); recount(); applyLevels(); }
+  syncSegs();
+};
+document.getElementById('vol').oninput = () => applyLevels();
+document.getElementById('thin').oninput = () => applyLevels();
+for (const id of ['eqLo', 'eqMid', 'eqHi'])
+  document.getElementById(id).oninput = () => { drawEq(); applyLevels(); };
+// Label live while dragging, but only rebuild the oscillator bank on release —
+// retuning 15 voices on every pointer move is needless churn.
+document.getElementById('range').oninput = e => {
+  document.getElementById('rangeLab').textContent = e.target.value;
+  drawEq();
+};
+function retunePitches() {
+  teardownVoices(); defineGroups();
+  if (audio) { buildVoices(); recount(); applyLevels(); }
+  drawEq();
+  if (activeTab === 'dev' && devPicked !== null) devShow(devPicked);
+}
+document.getElementById('range').onchange = retunePitches;
+
+const scaleSel = document.getElementById('scale');
+for (const name of Object.keys(SCALES)) {
+  const o = document.createElement('option');
+  o.value = name; o.textContent = `${name} (${SCALES[name].length}/oct)`;
+  scaleSel.appendChild(o);
+}
+scaleSel.value = 'major pentatonic';
+scaleSel.onchange = () => { SCALE = SCALES[scaleSel.value]; retunePitches(); };
+document.getElementById('hold').oninput = e => { document.getElementById('holdLab').textContent = e.target.value; };
+
+// ---- Map ----------------------------------------------------------------
+// Logical (CSS) canvas size. Kept separate from canvas.width/height, which are
+// in device pixels for sharpness on hi-dpi screens.
+let mapW = 620, mapH = 430;
+function resizeCanvas() {
+  const dpr = window.devicePixelRatio || 1;
+  // A degree of longitude is shorter than a degree of latitude at 51.5°N, so
+  // without the cos() correction London comes out noticeably stretched.
+  const kx = Math.cos((bounds.latMin + bounds.latMax) / 2 * Math.PI / 180);
+  const aspect = ((bounds.lonMax - bounds.lonMin) * kx) / (bounds.latMax - bounds.latMin);
+  const room = Math.max(320, window.innerWidth - 40);
+  // Leave the arrivals list beside the map on wide screens; it wraps under on narrow ones.
+  let w = room > 1180 ? room - 440 : room;
+  w = Math.min(w, 1300);
+  let h = Math.round(w / aspect);
+  const maxH = Math.max(300, window.innerHeight - 250);
+  if (h > maxH) { h = maxH; w = Math.round(h * aspect); }
+  mapW = w; mapH = h;
+  canvas.style.width = w + 'px';
+  canvas.style.height = h + 'px';
+  canvas.width = Math.round(w * dpr);
+  canvas.height = Math.round(h * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  logEl.style.height = h + 'px';
+}
+window.addEventListener('resize', resizeCanvas);
+
+function xy(lat, lon) {
+  const pad = 18;
+  return [pad + (lon - bounds.lonMin) / (bounds.lonMax - bounds.lonMin) * (mapW - 2 * pad),
+          pad + (bounds.latMax - lat) / (bounds.latMax - bounds.latMin) * (mapH - 2 * pad)];
+}
+function drawMap() {
+  if (!running) return;
+  const now = performance.now();
+  pruneOccupancy(Date.now());
+  // Paint the background rather than relying on the CSS colour: the fading
+  // occupancy dots composite with globalAlpha, which needs real pixels beneath.
+  ctx.clearRect(0, 0, mapW, mapH);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, mapW, mapH);
+
+  // Line paths, drawn faintly underneath everything else.
+  ctx.lineWidth = 1.3; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  for (const r of routes) {
+    if (!enabled[r.line]) continue;
+    ctx.globalAlpha = .55; ctx.strokeStyle = r.colour;
+    ctx.beginPath();
+    let started = false;
+    for (const nap of r.stops) {
+      const st = stations[nap];
+      if (!st) { started = false; continue; }        // gap rather than a wrong line
+      const [x, y] = xy(st.lat, st.lon);
+      if (started) ctx.lineTo(x, y); else { ctx.moveTo(x, y); started = true; }
+    }
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+
+  // Every station, unlit.
+  ctx.fillStyle = '#b4b4b4';
+  for (const s of Object.values(stations)) { const [x, y] = xy(s.lat, s.lon); ctx.fillRect(x - 1, y - 1, 2, 2); }
+
+  // Stations holding a train: bigger with more trains, dimming toward the timeout.
+  const limit = holdMs(), wall = Date.now();
+  const perStation = new Map();
+  for (const [key, rec] of atStation) {
+    if (!enabled[rec.line]) continue;
+    let e = perStation.get(rec.nap);
+    if (!e) perStation.set(rec.nap, e = {n: 0, oldest: Infinity, colour: '#333'});
+    e.n++;
+    if (rec.enteredAt < e.oldest) e.oldest = rec.enteredAt;
+    e.colour = LINE_COLOUR[rec.line] || '#fff';
+  }
+  for (const [nap, e] of perStation) {
+    const st = stations[nap];
+    if (!st) continue;
+    const [x, y] = xy(st.lat, st.lon);
+    const age = Math.min(1, (wall - e.oldest) / limit);
+    const r = 2.8 + Math.min(3, e.n - 1) * 1.3;
+    ctx.globalAlpha = 1 - .6 * age;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fillStyle = e.colour; ctx.fill();
+    // White rim keeps overlapping interchange dots readable against each other.
+    ctx.lineWidth = 1; ctx.strokeStyle = '#fff';
+    ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.stroke();
+    ctx.globalAlpha = (1 - age) * .35;
+    ctx.lineWidth = 1.3; ctx.strokeStyle = e.colour;
+    ctx.beginPath(); ctx.arc(x, y, r + 3, 0, 7); ctx.stroke();
+    ctx.globalAlpha = 1; ctx.lineWidth = 1.3;
+  }
+
+  flashes = flashes.filter(f => now - f.t < 1600);
+  for (const f of flashes) {
+    const a = (now - f.t) / 1600;
+    ctx.beginPath(); ctx.arc(f.x, f.y, 3 + a * 14, 0, 7);
+    ctx.strokeStyle = f.colour; ctx.globalAlpha = (1 - a) * (f.kind === 'arr' ? .9 : .45);
+    ctx.stroke(); ctx.globalAlpha = 1;
+  }
+  requestAnimationFrame(drawMap);
+}
+
+// ---- Audio --------------------------------------------------------------
+function unlockIOS() {                        // iOS mutes Web Audio on the ring switch
+  if (silentEl) return;
+  const sr = 8000, n = sr / 2, buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+  const str = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  str(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); str(8, 'WAVEfmt ');
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true);
+  v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  str(36, 'data'); v.setUint32(40, n * 2, true);
+  silentEl = new Audio(URL.createObjectURL(new Blob([buf], {type: 'audio/wav'})));
+  silentEl.loop = true; silentEl.playsInline = true; silentEl.volume = .01;
+  silentEl.play().catch(() => {});
+}
+async function ensureAudio() {
+  unlockIOS();
+  if (!audio) {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    audio = new Ctx();
+    master = new GainNode(audio, {gain: .9});
+    master.connect(new DynamicsCompressorNode(audio, {threshold: -18, ratio: 6})).connect(audio.destination);
+    buildVoices();
+  }
+  await audio.resume();
+  return audio.state === 'running';
+}
+// Held notes run continuously and are played by ramping gain — that is what makes
+// arrivals crescendo and departures fade instead of clicking on and off.
+function buildVoices() {
+  for (const g of groups) {
+    if (g.gain) continue;
+    const gain = new GainNode(audio, {gain: 0});
+    const filt = new BiquadFilterNode(audio, {type: 'lowpass', frequency: 300, Q: .7});
+    const pan = new StereoPannerNode(audio, {pan: g.pan});
+    gain.connect(filt).connect(pan).connect(master);
+    g.oscs = [-6, 0, 6].map(cents => {
+      const o = new OscillatorNode(audio, {type: 'triangle', frequency: g.freq, detune: cents});
+      o.connect(gain); o.start(); return o;
+    });
+    const hi = new OscillatorNode(audio, {type: 'sine', frequency: g.freq * 2});
+    hi.connect(new GainNode(audio, {gain: .18})).connect(gain); hi.start();
+    g.oscs.push(hi);
+    g.gain = gain; g.filter = filt;
+  }
+}
+function teardownVoices() {
+  for (const g of groups) {
+    if (!g.oscs) continue;
+    for (const o of g.oscs) { try { o.stop(); } catch (e) {} try { o.disconnect(); } catch (e) {} }
+    try { g.gain.disconnect(); } catch (e) {}
+    g.oscs = null; g.gain = null; g.filter = null; g.level = 0;
+  }
+}
+function silenceAll() {
+  if (!audio) return;
+  for (const g of groups) if (g.gain) {
+    g.gain.gain.cancelScheduledValues(audio.currentTime);
+    g.gain.gain.setTargetAtTime(0, audio.currentTime, .35); g.level = 0;
+  }
+}
+function applyLevels() {
+  if (!audio || mode !== 'sustain') return;
+  const vol = document.getElementById('vol').value / 100;
+  const gate = document.getElementById('thin').value / 100;
+  const now = audio.currentTime;
+  for (const g of groups) {
+    if (!g.gain) continue;
+    // Compare each note against ITS OWN typical count, then expand the range
+    // around that. A plain count/typical ratio pins everything at full — counts
+    // sit near their average by definition — and the chord stops breathing.
+    const LO = .25, HI = 1.5;
+    let raw = g.count > 0 ? Math.max(0, Math.min(1, (g.count / g.typical - LO) / (HI - LO))) : 0;
+    if (raw < gate) raw = 0;
+    // Relative normalisation alone lets a near-empty group blare: one train in a
+    // band whose typical is 0.4 saturates to full. Weight sparse groups down.
+    const presence = Math.min(1, .5 + .5 * Math.min(1, g.typical / 8));
+    const target = raw * presence * .24 * vol * eqGain(g.freq);
+    const tau = target > g.level ? 1.1 : 2.6;      // crescendo faster than the fade
+    g.gain.gain.setTargetAtTime(target, now, tau);
+    g.filter.frequency.setTargetAtTime(260 + 2400 * raw, now, tau);
+    g.level = target;
+    const bar = document.getElementById('bar-' + g.key);
+    if (bar) bar.style.width = Math.round(raw * presence * 100) + '%';
+    const ct = document.getElementById('ct-' + g.key);
+    if (ct) ct.textContent = g.count;
+  }
+}
+// A voice must be released exactly once; relying on onended alone leaks the
+// counter if the browser drops the event, muting everything once the cap is hit.
+function releaseVoice(node, ms) {
+  let done = false;
+  const rel = () => { if (!done) { done = true; voices--; } };
+  node.onended = rel; setTimeout(rel, ms);
+}
+function playBell(freq, pan, gain) {
+  if (voices > 24) return;
+  voices++; soundsPlayed++;
+  const t = audio.currentTime;
+  const g = new GainNode(audio, {gain: 0});
+  g.connect(new StereoPannerNode(audio, {pan})).connect(master);
+  g.gain.setValueAtTime(Math.max(1e-4, gain), t);
+  g.gain.exponentialRampToValueAtTime(1e-4, t + 1.6);
+  const oscs = [[1, 1], [2, .35], [5.4, .12]].map(([r, a]) => {
+    const o = new OscillatorNode(audio, {frequency: freq * r});
+    o.connect(new GainNode(audio, {gain: a})).connect(g);
+    o.start(t); o.stop(t + 1.7); return o;
+  });
+  releaseVoice(oscs[0], 2200);
+}
+function playPluck(freq, pan, gain) {
+  if (voices > 24) return;
+  voices++; soundsPlayed++;
+  const t = audio.currentTime;
+  const o = new OscillatorNode(audio, {type: 'triangle', frequency: freq / 2});
+  o.frequency.exponentialRampToValueAtTime(freq / 2 * .96, t + .5);
+  const g = new GainNode(audio, {gain: 0});
+  o.connect(new BiquadFilterNode(audio, {type: 'lowpass', frequency: 1100}))
+   .connect(g).connect(new StereoPannerNode(audio, {pan})).connect(master);
+  g.gain.setValueAtTime(Math.max(1e-4, gain * .7), t);
+  g.gain.exponentialRampToValueAtTime(1e-4, t + .55);
+  o.start(t); o.stop(t + .6);
+  releaseVoice(o, 1100);
+}
+function chime() {
+  const vol = document.getElementById('vol').value / 100;
+  const byPitch = [...groups].sort((a, b) => a.slot - b.slot);
+  byPitch.forEach((g, i) => setTimeout(() => {
+    if (mode === 'sustain') {
+      if (!g.gain) return;
+      const t = audio.currentTime;
+      g.gain.gain.setTargetAtTime(.15 * vol, t, .08);
+      g.gain.gain.setTargetAtTime(g.level, t + .45, .35);
+    } else playBell(g.freq, g.pan, .2 * vol);
+  }, i * 100));
+}
+function updateAudioStatus(note) {
+  const el = document.getElementById('audioStatus');
+  if (!audio) { el.textContent = 'audio: not started'; return; }
+  const bad = audio.state !== 'running';
+  el.className = bad ? 'bad' : '';
+  const age = lastFresh ? `${Math.round((performance.now() - lastFresh) / 1000)}s` : '—';
+  const detail = mode === 'sustain'
+    ? `${groups.filter(g => g.level > .001).length}/${groups.length} notes sounding`
+    : `${soundsPlayed} pings played`;
+  el.textContent = `audio: ${audio.state} · ${detail} · fresh data ${age} ago`
+    + (bad ? ' ← blocked by browser, press Start again' : '') + (note ? ` · ${note}` : '');
+}
+setInterval(() => updateAudioStatus(), 500);
+
+// ---- Events -------------------------------------------------------------
+function logLine(kind, line, station) {
+  const div = document.createElement('div');
+  div.className = kind;
+  div.innerHTML = `<span style="color:${LINE_INK[line]}">${kind === 'arr' ? '●' : '○'}</span> ` +
+    `${kind.toUpperCase()} <span style="color:${LINE_INK[line]}">${line}</span> — ${station}`;
+  logEl.prepend(div);
+  while (logEl.children.length > 60) logEl.lastChild.remove();
+}
+function sound(kind, line, nap, stationName) {
+  if (!enabled[line]) return;
+  eventTimes.push(performance.now());
+  logLine(kind, line, stations[nap]?.name || stationName);    // list runs in both modes
+  const st = stations[nap], g = groupFor(line, nap);
+  if (!st) return;
+  const [x, y] = xy(st.lat, st.lon);
+  flashes.push({x, y, t: performance.now(), colour: LINE_COLOUR[line], kind});
+  if (mode !== 'ping' || !g || !audio) return;
+  const pan = Math.max(-1, Math.min(1,
+    ((st.lon - bounds.lonMin) / (bounds.lonMax - bounds.lonMin)) * 2 - 1)) * .8;
+  const vol = document.getElementById('vol').value / 100;
+  // In key mode each ping is pitched by its OWN station's position, at full
+  // resolution — the held note only tracks the line's average.
+  const f = pitchMode === 'key' ? keyPitch(LINE_IDX[line], nePos(st)) : g.freq;
+  const amp = .25 * vol * eqGain(f);
+  if (kind === 'arr') playBell(f, pan, amp);
+  else playPluck(f, pan, amp);
+}
+function recount() {
+  for (const g of groups) { g.count = 0; g.posSum = 0; }
+  for (const rec of atStation.values()) {
+    if (!enabled[rec.line]) continue;
+    const g = groupFor(rec.line, rec.nap);
+    if (!g) continue;
+    g.count++;
+    const st = stations[rec.nap];
+    if (st) g.posSum += nePos(st);
+  }
+  updateKeyPitches();
+}
+// The seeds above are only right for one traffic model and one stay setting —
+// they went stale twice already, and moving the stay slider rescales every count.
+// So each group slowly learns its own normal (~10 min time constant, seeded from
+// the measured values) and re-centres itself instead of sitting clipped at full.
+let lastAdapt = 0;
+function adaptTypicals(wall) {
+  if (wall - lastAdapt < 1000) return;
+  lastAdapt = wall;
+  for (const g of groups) {
+    g.typical = Math.max(0.5, g.typical + (g.count - g.typical) / 600);
+    learnedTypical.set(g.key, g.typical);
+  }
+}
+// A train arriving somewhere new implies it left wherever it was.
+function arrive(key, line, nap, station) {
+  const prevRec = atStation.get(key);
+  if (prevRec && prevRec.nap !== nap) sound('dep', line, prevRec.nap, '');
+  atStation.set(key, {nap, enteredAt: Date.now(), line});
+  expired.delete(key);
+  sound('arr', line, nap, station);
+}
+// Safety net for a departure we never saw — a vanished train, a missed poll, or
+// stock parked at a platform for hours (the feed leaves those reading "At X").
+function pruneOccupancy(wall) {
+  const limit = holdMs();
+  for (const [key, rec] of atStation) {
+    if (wall - rec.enteredAt <= limit) continue;
+    atStation.delete(key);
+    expired.set(key, rec.nap);           // don't relight until it really moves
+    sound('dep', rec.line, rec.nap, '');
+  }
+}
+
+// ---- Data ---------------------------------------------------------------
+async function loadStations() {
+  const res = await Promise.all(LINE_IDS.map(l =>
+    fetch(`https://api.tfl.gov.uk/Line/${l}/StopPoints`).then(r => r.json())));
+  for (const stops of res) for (const s of stops) {
+    if (!s.lat) continue;
+    stations[s.naptanId || s.id] = {name: (s.commonName || '').replace(' Underground Station', ''),
+                                    lat: s.lat, lon: s.lon};
+  }
+  const la = Object.values(stations).map(s => s.lat), lo = Object.values(stations).map(s => s.lon);
+  bounds = {latMin: Math.min(...la), latMax: Math.max(...la),
+            lonMin: Math.min(...lo), lonMax: Math.max(...lo)};
+}
+// Ordered stop sequences per line, so the map can join the dots. Branched lines
+// return several sequences (northern and metropolitan have 10 each).
+async function loadRoutes() {
+  const res = await Promise.all(LINE_IDS.map(l =>
+    fetch(`https://api.tfl.gov.uk/Line/${l}/Route/Sequence/outbound`)
+      .then(r => r.ok ? r.json() : null).catch(() => null)));
+  routes = [];
+  res.forEach((d, i) => {
+    if (!d || !d.stopPointSequences) return;
+    for (const seq of d.stopPointSequences)
+      routes.push({line: LINE_IDS[i], colour: LINE_COLOUR[LINE_IDS[i]],
+                   stops: seq.stopPoint.map(s => s.stationId || s.id)});
+  });
+}
+async function fetchPredictions() {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), FETCH_TIMEOUT_MS);
+  let preds, age = 0;
+  try {
+    const r = await fetch(`https://api.tfl.gov.uk/Line/${LINE_IDS.join(',')}/Arrivals`, {signal: ctl.signal});
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    // TfL exposes Age via CORS. timeToStation is relative to when the payload was
+    // GENERATED, and the CDN may have held it up to 60s, so subtracting Age is
+    // what makes the schedule land at the right moment. It needs no clock
+    // comparison, unlike parsing expectedArrival against the browser's clock.
+    age = Number(r.headers.get('Age') || 0);
+    preds = await r.json();
+  } finally { clearTimeout(timer); }
+  let ts = '';
+  for (const p of preds) if (p.timestamp > ts) ts = p.timestamp;
+  return {ts, preds, age: Number.isFinite(age) ? age : 0};
+}
+// Turn a payload into scheduled arrivals. expectedArrival is absolute, so a
+// payload served stale from the CDN still lands its events at the right moment;
+// clockSkew corrects for the browser clock differing from TfL's.
+function ingest(preds, ageSec) {
+  const wall = Date.now();
+  let added = 0;
+  for (const p of preds) {
+    if (!p.vehicleId || p.vehicleId === '000' || !p.naptanId) continue;   // shared placeholder id
+    const key = `${p.lineId}|${p.vehicleId}|${p.naptanId}`;
+    if (fired.has(key)) continue;
+    const at = wall + (p.timeToStation - ageSec) * 1000
+             + (Math.random() - 0.5) * QUANT_MS;          // de-quantise, see QUANT_MS
+    if (at > wall + HORIZON_MS) continue;
+    // Already past according to THIS payload. Skip it, but never mark it fired:
+    // a payload served 58s stale reports every imminent arrival as past, and
+    // poisoning those keys stopped a fresher payload from ever scheduling them —
+    // which showed up as a dead 10s window followed by a burst.
+    if (at < wall + 500) continue;
+    schedule.set(key, {at, line: p.lineId, nap: p.naptanId, vehicle: p.vehicleId,
+                       station: p.stationName.replace(' Underground Station', '')});
+    added++;
+  }
+  // Trains the feed already shows sitting in a platform, so the map is populated
+  // immediately instead of waiting for the first scheduled arrival.
+  const best = {};
+  for (const p of preds) {
+    if (!p.vehicleId || p.vehicleId === '000') continue;
+    const k = `${p.lineId}|${p.vehicleId}`;
+    if (!best[k] || p.timeToStation < best[k].timeToStation) best[k] = p;
+  }
+  for (const [k, p] of Object.entries(best)) {
+    if (!AT_RE.test(p.currentLocation || '') || !p.naptanId) continue;
+    if (expired.get(k) === p.naptanId) continue;
+    const cur = atStation.get(k);
+    if (!cur || cur.nap !== p.naptanId) atStation.set(k, {nap: p.naptanId, enteredAt: wall, line: p.lineId});
+  }
+  return added;
+}
+function tick() {
+  if (!running) return;
+  const wall = Date.now();
+  let n = 0;
+  for (const [key, ev] of schedule) {
+    if (ev.at > wall) continue;
+    schedule.delete(key);
+    fired.set(key, wall);
+    arrive(`${ev.line}|${ev.vehicle}`, ev.line, ev.nap, ev.station);
+    if (++n >= 12) break;                       // spread a big catch-up over ticks
+  }
+  pruneOccupancy(wall);           // single expiry path: emits the departure too
+  adaptTypicals(wall);
+  if (fired.size > 8000) for (const [k, t] of fired) if (wall - t > 300000) fired.delete(k);
+  recount();
+  applyLevels();
+  eventTimes = eventTimes.filter(t => t > performance.now() - 60000);
+  tickTimer = setTimeout(tick, TICK_MS);
+}
+async function poll() {
+  if (!running) return;
+  try {
+    const {ts, preds, age} = await fetchPredictions();
+    lastReply = performance.now();
+    const stale = ts && ts <= lastPayloadTs;
+    if (!stale) { lastPayloadTs = ts; lastFresh = performance.now(); }
+    // A stale payload is still worth ingesting: subtracting Age puts its events
+    // on the same real-world timeline, and it only ever adds arrivals that have
+    // not fired yet.
+    ingest(preds, age);
+    const dwelling = atStation.size;
+    statsEl.textContent = `${dwelling} sitting in platforms · ${schedule.size} arrivals scheduled · `
+      + `${eventTimes.length} events/min · `
+      + (stale ? 'TfL cache unchanged (refreshes ~60s)' : `polling every ${POLL_MS / 1000}s`);
+  } catch (e) {
+    const why = e.name === 'AbortError' ? `timed out after ${FETCH_TIMEOUT_MS / 1000}s` : e.message;
+    statsEl.textContent = `poll failed (${why}) — retrying in ${POLL_MS / 1000}s`;
+  } finally {
+    // Unconditional: every exit path must re-arm the loop or polling stops dead.
+    if (running) { clearTimeout(pollTimer); pollTimer = setTimeout(poll, POLL_MS); }
+  }
+}
+// Phones suspend timers on lock and background tabs throttle hard, so on return
+// resume audio and re-poll immediately rather than waiting out a stale timer.
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden || !running) return;
+  if (audio) audio.resume().catch(() => {});
+  clearTimeout(pollTimer); pollTimer = setTimeout(poll, 0);
+  clearTimeout(tickTimer); tickTimer = setTimeout(tick, 0);
+});
+setInterval(() => {
+  if (running && performance.now() - lastReply > 3 * POLL_MS) {
+    clearTimeout(pollTimer); pollTimer = setTimeout(poll, 0);
+  }
+}, 5000);
+
+// ---- Wiring -------------------------------------------------------------
+document.getElementById('testBtn').onclick = async function () {
+  const ok = await ensureAudio();
+  chime();
+  updateAudioStatus(ok ? 'swept the register' : 'context NOT running');
+};
+document.getElementById('startBtn').onclick = async function () {
+  if (running) {
+    running = false;
+    clearTimeout(pollTimer); clearTimeout(tickTimer);
+    schedule.clear(); fired.clear(); atStation.clear(); expired.clear();
+    silenceAll();
+    this.textContent = '▶ Start'; statsEl.textContent = 'stopped';
+    return;
+  }
+  await ensureAudio();
+  chime();
+  if (!Object.keys(stations).length) {
+    statsEl.textContent = 'loading stations and route map…';
+    await loadStations();
+    await loadRoutes();
+  }
+  running = true;
+  this.textContent = '⏸ Stop';
+  statsEl.textContent = 'fetching predictions — sounds begin as trains reach their stations';
+  resizeCanvas();                    // bounds are known now, so the aspect is right
+  drawMap();
+  poll();
+  tick();
+};
+
+// ===== Line inspector tab ================================================
+// A deliberately literal view: one line in route order, every train placed by
+// parsing its currentLocation string, so you can see exactly what the feed says
+// and what the sonification makes of it.
+const devSel = document.getElementById('devLine');
+const devCanvas = document.getElementById('devMap'), dctx = devCanvas.getContext('2d');
+const devStats = document.getElementById('devStats');
+const devDetail = document.getElementById('devDetail');
+let devLine = 'victoria', devStops = [], devTrains = [], devPicked = null, devTimer, devHit = [];
+let devBranches = [], devBranchIdx = 0, devPreds = [], devAge = 0;
+let activeTab = 'sound';
+const devBranchSel = document.getElementById('devBranch');
+// Slot each line occupies in "tube line" pitch mode, independent of which pitch
+// mode is selected right now — the inspector reports all three.
+const LINE_SLOTS = centreOutOrder(LINE_DATA.length);
+
+for (const l of LINE_IDS) {
+  const o = document.createElement('option');
+  o.value = l; o.textContent = l; devSel.appendChild(o);
+}
+devSel.value = devLine;
+
+const BETWEEN_RE = /^Between (.+?) and (.+)$/;
+const APPROACH_RE = /^Approaching (.+?)(?: Platform.*)?$/;
+const LEFT_RE = /^(?:Left|Departed|Leaving) (.+?)(?: Platform.*)?$/;
+const norm = s => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+async function devLoad() {
+  devStats.textContent = `loading ${devLine}…`;
+  try {
+    const [seq, arr] = await Promise.all([
+      fetch(`https://api.tfl.gov.uk/Line/${devLine}/Route/Sequence/outbound`).then(r => r.json()),
+      fetch(`https://api.tfl.gov.uk/Line/${devLine}/Arrivals`).then(async r =>
+        ({preds: await r.json(), age: Number(r.headers.get('Age') || 0)})),
+    ]);
+    // Lines are branched (Northern has 10 sequences, none of them the whole
+    // line), so offer every branch rather than silently showing the longest.
+    devBranches = (seq.stopPointSequences || []).slice()
+      .sort((a, b) => b.stopPoint.length - a.stopPoint.length)
+      .map(s => s.stopPoint.map(x => ({
+        id: x.stationId || x.id, name: (x.name || '').replace(' Underground Station', ''),
+      })));
+    devBranchSel.innerHTML = devBranches.map((b, i) =>
+      `<option value="${i}">${b.length} stops: ${b[0]?.name} → ${b[b.length - 1]?.name}</option>`).join('');
+    if (devBranchIdx >= devBranches.length) devBranchIdx = 0;
+    devBranchSel.value = devBranchIdx;
+    devPreds = arr.preds; devAge = arr.age;
+    devPlace();
+  } catch (e) {
+    devStats.textContent = `load failed: ${e.message}`;
+  }
+}
+
+// Place each train on the currently selected branch.
+function devPlace() {
+    devStops = devBranches[devBranchIdx] || [];
+    const byIdx = new Map(devStops.map((s, i) => [norm(s.name), i]));
+    const best = {};
+    for (const p of devPreds) {
+      if (!p.vehicleId || p.vehicleId === '000') continue;
+      if (!best[p.vehicleId] || p.timeToStation < best[p.vehicleId].timeToStation) best[p.vehicleId] = p;
+    }
+    devTrains = [];
+    for (const p of Object.values(best)) {
+      const loc = p.currentLocation || '';
+      let pos = null, kind = 'unknown';
+      let m;
+      if ((m = AT_RE.exec(loc))) {
+        const i = byIdx.get(norm(m[1]));
+        if (i !== undefined) { pos = i; kind = 'at'; }
+      } else if ((m = BETWEEN_RE.exec(loc))) {
+        const a = byIdx.get(norm(m[1])), b = byIdx.get(norm(m[2]));
+        if (a !== undefined && b !== undefined) { pos = (a + b) / 2; kind = 'between'; }
+      } else if ((m = APPROACH_RE.exec(loc))) {
+        const i = byIdx.get(norm(m[1]));
+        if (i !== undefined) { pos = i - 0.25; kind = 'approaching'; }
+      } else if ((m = LEFT_RE.exec(loc))) {
+        const i = byIdx.get(norm(m[1]));
+        if (i !== undefined) { pos = i + 0.25; kind = 'left'; }
+      }
+      // Fall back to the station it is predicted for, so nothing is silently dropped.
+      if (pos === null) {
+        const i = byIdx.get(norm((p.stationName || '').replace(' Underground Station', '')));
+        if (i !== undefined) { pos = i - 0.4; kind = 'unplaced'; }
+      }
+      devTrains.push({pos, kind, loc, p});
+    }
+    devTrains = devTrains.filter(t => t.pos !== null);
+    const total = Object.keys(best).length;
+    devStats.textContent = `${devStops.length} stations on this branch · ${devTrains.length} of `
+      + `${total} trains on the line placed here (the rest are on other branches) · `
+      + `payload Age ${devAge}s · ${devPreds.length} raw predictions`;
+    devDraw();
+    if (devPicked !== null) devShow(devPicked);
+}
+
+function devDraw() {
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = Math.min(1300, Math.max(320, window.innerWidth - 40));
+  const cssH = 230;
+  devCanvas.style.height = cssH + 'px';
+  devCanvas.width = Math.round(cssW * dpr); devCanvas.height = Math.round(cssH * dpr);
+  dctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  dctx.fillStyle = '#fff'; dctx.fillRect(0, 0, cssW, cssH);
+  if (!devStops.length) return;
+
+  const padL = 24, padR = 24, y = 150;
+  const step = (cssW - padL - padR) / Math.max(1, devStops.length - 1);
+  const X = i => padL + i * step;
+  const colour = LINE_COLOUR[devLine];
+
+  dctx.strokeStyle = colour; dctx.lineWidth = 5; dctx.lineCap = 'round';
+  dctx.beginPath(); dctx.moveTo(X(0), y); dctx.lineTo(X(devStops.length - 1), y); dctx.stroke();
+
+  devHit = [];
+  devStops.forEach((s, i) => {
+    const x = X(i);
+    dctx.beginPath(); dctx.arc(x, y, devPicked === i ? 8 : 5.5, 0, 7);
+    dctx.fillStyle = '#fff'; dctx.fill();
+    dctx.lineWidth = devPicked === i ? 3.5 : 2; dctx.strokeStyle = devPicked === i ? '#0019a8' : colour;
+    dctx.stroke();
+    devHit.push({x, y, i});
+    dctx.save();
+    dctx.translate(x, y + 16); dctx.rotate(Math.PI / 3.2);
+    dctx.fillStyle = devPicked === i ? '#0019a8' : '#555';
+    dctx.font = (devPicked === i ? '600 ' : '') + '10px system-ui';
+    dctx.fillText(s.name, 0, 0);
+    dctx.restore();
+  });
+
+  // Trains above the line; shape encodes what the feed said about each one.
+  const lanes = new Map();
+  for (const t of devTrains) {
+    if (t.pos === null) continue;
+    const x = X(t.pos);
+    const slot = Math.round(t.pos * 2);
+    const lane = (lanes.get(slot) || 0); lanes.set(slot, lane + 1);
+    const ty = y - 34 - lane * 15;
+    dctx.fillStyle = t.kind === 'at' ? '#1d7a44'
+                   : t.kind === 'between' ? '#0019a8'
+                   : t.kind === 'approaching' ? '#c07000'
+                   : t.kind === 'left' ? '#8a4fbe' : '#999';
+    if (t.kind === 'at') { dctx.fillRect(x - 5, ty - 5, 10, 10); }
+    else { dctx.beginPath(); dctx.arc(x, ty, 4.5, 0, 7); dctx.fill(); }
+    if (t.kind === 'at') {
+      dctx.strokeStyle = '#1d7a44'; dctx.lineWidth = 1;
+      dctx.beginPath(); dctx.moveTo(x, ty + 6); dctx.lineTo(x, y - 9); dctx.stroke();
+    }
+  }
+  dctx.font = '11px system-ui';
+  const key = [['#1d7a44', '■ at a station'], ['#0019a8', '● between'],
+               ['#c07000', '● approaching'], ['#8a4fbe', '● just left'], ['#999', '● unplaced']];
+  let kx = padL;
+  for (const [c, label] of key) {
+    dctx.fillStyle = c; dctx.fillText(label, kx, 18); kx += dctx.measureText(label).width + 16;
+  }
+}
+
+// The pitch a station would sound at under each mapping, so the inspector can
+// demonstrate all three regardless of what the Sound tab is set to.
+function devFreqFor(st, pm) {
+  if (pm === 'geo') return geoFreq(bandOf(st.lat));
+  if (pm === 'line') return lineFreq(LINE_IDX[devLine]);
+  return keyPitch(LINE_IDX[devLine], nePos(st));
+}
+async function devPlay(stopId, kind, pm) {
+  const st = stations[stopId];
+  if (!st) return;
+  await ensureAudio();                       // the click is the required gesture
+  const f = devFreqFor(st, pm || pitchMode);
+  const pan = Math.max(-1, Math.min(1,
+    ((st.lon - bounds.lonMin) / (bounds.lonMax - bounds.lonMin)) * 2 - 1)) * .8;
+  const amp = .3 * (document.getElementById('vol').value / 100) * eqGain(f);
+  if (kind === 'dep') playPluck(f, pan, amp); else playBell(f, pan, amp);
+}
+
+devCanvas.onclick = e => {
+  const r = devCanvas.getBoundingClientRect();
+  const x = (e.clientX - r.left) * (devCanvas.width / r.width) / (window.devicePixelRatio || 1);
+  let bestI = null, bestD = 1e9;
+  for (const h of devHit) { const d = Math.abs(h.x - x); if (d < bestD) { bestD = d; bestI = h.i; } }
+  if (bestI === null || bestD >= 40) return;
+  devPicked = bestI; devDraw(); devShow(bestI);
+  devPlay(devStops[bestI].id, 'arr');        // hear the station you just clicked
+};
+
+// Buttons inside the detail panel are re-rendered constantly, so delegate.
+devDetail.onclick = e => {
+  const b = e.target.closest('button[data-play]');
+  if (b) devPlay(b.dataset.stop, b.dataset.play, b.dataset.pitch || undefined);
+};
+
+function devShow(i) {
+  const stop = devStops[i];
+  if (!stop) return;
+  const st = stations[stop.id];
+  const here = devTrains.filter(t => AT_RE.test(t.loc) && Math.round(t.pos) === i && t.kind === 'at');
+  const inbound = devTrains
+    .filter(t => t.p.naptanId === stop.id)
+    .sort((a, b) => a.p.timeToStation - b.p.timeToStation).slice(0, 8);
+
+  const rows = inbound.map(t => {
+    const p = t.p;
+    return `<tr><td>${p.vehicleId}</td><td>${p.timeToStation}s</td>` +
+      `<td>${(p.expectedArrival || '').slice(11, 19)}</td>` +
+      `<td>${p.platformName || '—'}</td><td>${p.destinationName?.replace(' Underground Station', '') || '—'}</td>` +
+      `<td style="max-width:22rem;white-space:normal">${p.currentLocation || '<i>(empty)</i>'}</td></tr>`;
+  }).join('');
+
+  let derived = '<i>No coordinates for this stop, so it cannot be sonified.</i>';
+  if (st) {
+    const g = groupFor(devLine, stop.id);
+    const p = nePos(st);
+    const keyF = keyPitch(LINE_IDX[devLine], p);
+    const pan = Math.max(-1, Math.min(1,
+      ((st.lon - bounds.lonMin) / (bounds.lonMax - bounds.lonMin)) * 2 - 1)) * .8;
+    const occupied = [...atStation.values()].filter(r => r.nap === stop.id).length;
+    derived =
+      `<b>What the sonification does with this station</b><br>` +
+      `position <code>${st.lat.toFixed(4)}, ${st.lon.toFixed(4)}</code> · ` +
+      `latitude band <code>${bandOf(st.lat)}</code> of ${N_BANDS} · ` +
+      `SW→NE position <code>${p.toFixed(3)}</code><br>` +
+      `pitch if <b>station latitude</b>: <code>${freqName(geoFreq(bandOf(st.lat)))}</code> · ` +
+      `if <b>tube line</b>: <code>${freqName(lineFreq(LINE_IDX[devLine]))}</code> · ` +
+      `if <b>line key + position</b>: <code>${freqName(keyF)}</code> (${keyF.toFixed(0)} Hz)<br>` +
+      `stereo pan <code>${pan.toFixed(2)}</code> (${pan < -.1 ? 'left' : pan > .1 ? 'right' : 'centre'}) · ` +
+      `EQ gain here <code>${eqGain(keyF).toFixed(2)}</code><br>` +
+      `currently counted as occupied by the Sound tab: <b>${occupied}</b> train(s)` +
+      (g ? ` · feeds note group <code>${g.label}</code>` : '') +
+      `<div style="margin-top:.5rem;display:flex;gap:.35rem;flex-wrap:wrap;align-items:center">` +
+      `<span style="font-size:.72rem;color:#666">hear it:</span>` +
+      `<button class="act" style="padding:.2rem .6rem;font-size:.78rem" data-play="arr" data-stop="${stop.id}">● arrival</button>` +
+      `<button class="act" style="padding:.2rem .6rem;font-size:.78rem" data-play="dep" data-stop="${stop.id}">○ departure</button>` +
+      `<span style="font-size:.72rem;color:#666;margin-left:.5rem">compare pitch modes:</span>` +
+      `<button class="act" style="padding:.2rem .6rem;font-size:.78rem" data-play="arr" data-pitch="geo" data-stop="${stop.id}">latitude ${freqName(geoFreq(bandOf(st.lat)))}</button>` +
+      `<button class="act" style="padding:.2rem .6rem;font-size:.78rem" data-play="arr" data-pitch="line" data-stop="${stop.id}">line ${freqName(lineFreq(LINE_IDX[devLine]))}</button>` +
+      `<button class="act" style="padding:.2rem .6rem;font-size:.78rem" data-play="arr" data-pitch="key" data-stop="${stop.id}">key+pos ${freqName(keyF)}</button>` +
+      `</div>`;
+  }
+
+  devDetail.innerHTML =
+    `<h3><span class="pill" style="background:${LINE_COLOUR[devLine]};` +
+    `${devLine === 'northern' ? '' : ''}">${devLine}</span> ${stop.name}</h3>` +
+    `<div>Feed says <b>${here.length}</b> train(s) sitting here right now` +
+    (here.length ? `: ${here.map(t => `<code>${t.p.vehicleId}</code>`).join(', ')}` : '') + `.</div>` +
+    (rows ? `<table><tr><th>train</th><th>due in</th><th>expected</th><th>platform</th>` +
+            `<th>destination</th><th>currentLocation (raw)</th></tr>${rows}</table>`
+          : `<div style="margin-top:.4rem"><i>No predictions currently reference this station.</i></div>`) +
+    `<div class="derived">${derived}</div>`;
+}
+
+function devTick() {
+  clearTimeout(devTimer);
+  if (activeTab !== 'dev' || !document.getElementById('devAuto').checked) return;
+  devTimer = setTimeout(async () => { await devLoad(); devTick(); }, 15000);
+}
+devSel.onchange = () => { devLine = devSel.value; devPicked = null; devBranchIdx = 0;
+  devDetail.textContent = 'Click a station above.'; devLoad(); };
+devBranchSel.onchange = () => { devBranchIdx = +devBranchSel.value; devPicked = null;
+  devDetail.textContent = 'Click a station above.'; devPlace(); };
+document.getElementById('devRefresh').onclick = () => devLoad();
+document.getElementById('devAuto').onchange = () => devTick();
+
+document.getElementById('tabBar').onclick = async e => {
+  const t = e.target.dataset.tab;
+  if (!t || t === activeTab) return;
+  activeTab = t;
+  for (const b of document.querySelectorAll('#tabBar button')) b.classList.toggle('on', b.dataset.tab === t);
+  document.getElementById('tab-sound').classList.toggle('hidden', t !== 'sound');
+  document.getElementById('tab-dev').classList.toggle('hidden', t !== 'dev');
+  document.getElementById('tab-rail').classList.toggle('hidden', t !== 'rail');
+  if (t === 'rail') {
+    document.getElementById('railBase').value = localStorage.getItem('nrBase') || 'https://national-rail-api.davwheat.dev';
+    document.getElementById('railKey').value = localStorage.getItem('nrKey') || '';
+    await railLoad();
+    railStatsEl.textContent = `${railNet.stations.length} stations · ${railNet.routes.length} route sections · `
+      + `${Object.keys(railCrs).length} CRS codes for live data`;
+    return;
+  }
+  if (t === 'dev') {
+    // The inspector needs station coordinates to show the derived mapping.
+    if (!Object.keys(stations).length) { devStats.textContent = 'loading stations…'; await loadStations(); }
+    await devLoad(); devTick();
+  } else { clearTimeout(devTimer); resizeCanvas(); }
+};
+window.addEventListener('resize', () => { if (activeTab === 'dev') devDraw(); });
+
+// ===== National Rail tab =================================================
+// Geometry is pre-built into nr-network.json (see /tmp/build_nr.py in the repo
+// notes): fetching all 25 operators from TfL live would be ~12 MB per load.
+// Indicative operator colours — approximations for telling routes apart, NOT
+// official brand palettes like the tube side.
+const TOC_COLOUR = {
+  'avanti-west-coast':'#1f3b57','c2c':'#b6127a','chiltern-railways':'#00558f',
+  'crosscountry':'#8b1f5e','east-midlands-railway':'#3f2a56','gatwick-express':'#c8102e',
+  'grand-central':'#1a1a1a','greater-anglia':'#1f5aa8','great-northern':'#2b6a9b',
+  'great-western-railway':'#0a493e','heathrow-express':'#4b2e83','hull-trains':'#0f7d7d',
+  'island-line':'#7a8f2e','london-north-eastern-railway':'#c8102e','lumo':'#2b57c9',
+  'merseyrail':'#c8a800','northern-rail':'#3a2a6b','scotrail':'#1c3f94',
+  'southeastern':'#0071b9','southern':'#3c8a3f','south-western-railway':'#7a2b6b',
+  'thameslink':'#e4739a','transpennine-express':'#0b6ea8','transport-for-wales':'#b4463a',
+  'west-midlands-trains':'#f08a00',
+};
+const railCanvas = document.getElementById('railMap'), rctx = railCanvas.getContext('2d');
+const railStatsEl = document.getElementById('railStats');
+const railLogEl = document.getElementById('railLog');
+let railNet = null, railW = 900, railH = 900, railBounds = null;
+let railOn = {}, railCrs = {}, railRunning = false, railTimer = null, railSeen = new Map();
+
+// Web Mercator: GB spans 50°N to 58.6°N, where a flat cos() correction is too
+// crude — latitude spacing has to stretch toward the north or Scotland squashes.
+// The ×180/π matters: without it y is in radians while x stays in degrees, and
+// GB renders as a 28:1 horizontal smear instead of a portrait island.
+const merc = lat => Math.log(Math.tan(Math.PI / 4 + lat * Math.PI / 360)) * 180 / Math.PI;
+
+async function railLoad() {
+  if (railNet) return;
+  railStatsEl.textContent = 'loading network…';
+  railNet = await fetch('nr-network.json').then(r => r.json());
+  const lats = railNet.stations.map(s => s[1]), lons = railNet.stations.map(s => s[2]);
+  railBounds = {yMin: merc(Math.min(...lats)), yMax: merc(Math.max(...lats)),
+                xMin: Math.min(...lons), xMax: Math.max(...lons)};
+  const ops = [...new Set(railNet.routes.map(r => r[0]))].sort();
+  for (const o of ops) if (!(o in railOn)) railOn[o] = true;
+  const box = document.getElementById('railToggles');
+  box.innerHTML = '';
+  for (const o of ops) {
+    const lab = document.createElement('label');
+    lab.className = 'line';
+    lab.innerHTML = `<input type="checkbox" ${railOn[o] ? 'checked' : ''}>` +
+      `<span class="sw" style="background:${TOC_COLOUR[o] || '#888'}"></span>${o}`;
+    lab.querySelector('input').onchange = e => { railOn[o] = e.target.checked; railDraw(); };
+    box.appendChild(lab);
+  }
+  // CRS codes (which the live feed is keyed by) are not in TfL's data.
+  try {
+    const list = await fetch('https://raw.githubusercontent.com/davwheat/uk-railway-stations/main/stations.json')
+      .then(r => r.json());
+    for (const s of list) if (s.crsCode) railCrs[s.crsCode] = {name: s.stationName, lat: s.lat, lon: s.long};
+  } catch (e) { /* map still works without it */ }
+  railFit();
+}
+
+function railFit() {
+  const dpr = window.devicePixelRatio || 1;
+  const availW = Math.max(320, Math.min(window.innerWidth - 460, 900));
+  const availH = Math.max(420, window.innerHeight - 260);
+  const b = railBounds;
+  const aspect = b ? (b.xMax - b.xMin) / (b.yMax - b.yMin) : 0.6;
+  let h = availH, w = h * aspect;
+  if (w > availW) { w = availW; h = w / aspect; }
+  railW = Math.round(w); railH = Math.round(h);
+  railCanvas.style.width = railW + 'px'; railCanvas.style.height = railH + 'px';
+  railCanvas.width = Math.round(railW * dpr); railCanvas.height = Math.round(railH * dpr);
+  rctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  railDraw();
+}
+function railXY(lat, lon) {
+  const b = railBounds, pad = 12;
+  return [pad + (lon - b.xMin) / (b.xMax - b.xMin) * (railW - 2 * pad),
+          pad + (b.yMax - merc(lat)) / (b.yMax - b.yMin) * (railH - 2 * pad)];
+}
+let railFlashes = [];
+function railDraw() {
+  if (!railNet) return;
+  rctx.fillStyle = '#fff'; rctx.fillRect(0, 0, railW, railH);
+  const S = railNet.stations;
+  rctx.lineWidth = 1; rctx.lineJoin = 'round'; rctx.lineCap = 'round';
+  for (const [op, seq] of railNet.routes) {
+    if (!railOn[op]) continue;
+    rctx.globalAlpha = .5; rctx.strokeStyle = TOC_COLOUR[op] || '#888';
+    rctx.beginPath();
+    seq.forEach((si, k) => {
+      const s = S[si]; if (!s) return;
+      const [x, y] = railXY(s[1], s[2]);
+      k ? rctx.lineTo(x, y) : rctx.moveTo(x, y);
+    });
+    rctx.stroke();
+  }
+  rctx.globalAlpha = 1;
+  rctx.fillStyle = '#9a9a9a';
+  for (const s of S) { const [x, y] = railXY(s[1], s[2]); rctx.fillRect(x - .6, y - .6, 1.2, 1.2); }
+  const now = performance.now();
+  railFlashes = railFlashes.filter(f => now - f.t < 2200);
+  for (const f of railFlashes) {
+    const a = (now - f.t) / 2200;
+    rctx.beginPath(); rctx.arc(f.x, f.y, 2 + a * 16, 0, 7);
+    rctx.strokeStyle = f.colour; rctx.lineWidth = 2; rctx.globalAlpha = 1 - a;
+    rctx.stroke(); rctx.globalAlpha = 1;
+  }
+  if (railRunning) requestAnimationFrame(railDraw);
+}
+
+// --- live departures (needs the user's own Darwin token) ---
+const RAIL_STATIONS = ['KGX','EUS','PAD','WAT','LST','VIC','LBG','CHX','MAN','BHM','LDS',
+  'GLC','EDB','LIV','SHF','NCL','BRI','CDF','NOT','YRK','RDG','CRE','PRE','EXD','SOU'];
+const railCfg = () => ({base: (localStorage.getItem('nrBase') || '').replace(/\/$/, ''),
+                        key: localStorage.getItem('nrKey') || ''});
+function railLog(txt, colour) {
+  if (railLogEl.textContent === 'No live data yet.') railLogEl.textContent = '';
+  const d = document.createElement('div');
+  d.innerHTML = `<span style="color:${colour}">●</span> ${txt}`;
+  railLogEl.prepend(d);
+  while (railLogEl.children.length > 80) railLogEl.lastChild.remove();
+}
+async function railPoll() {
+  if (!railRunning) return;
+  const {base, key} = railCfg();
+  if (!base || !key) { railStatsEl.textContent = 'no token set — map only'; return; }
+  let fired = 0, failed = 0;
+  for (const crs of RAIL_STATIONS) {
+    if (!railRunning) return;
+    try {
+      const r = await fetch(`${base}/departures/${crs}/10?accessToken=${encodeURIComponent(key)}`);
+      if (!r.ok) { failed++; continue; }
+      const d = await r.json();
+      const st = railCrs[crs];
+      for (const s of (d.trainServices || [])) {
+        const id = `${crs}|${s.serviceIdGuid || s.serviceID || s.std}|${s.std}`;
+        if (railSeen.has(id)) continue;
+        railSeen.set(id, Date.now());
+        if (!st) continue;
+        fired++;
+        const [x, y] = railXY(st.lat, st.lon);
+        const colour = TOC_COLOUR[(s.operator || '').toLowerCase().replace(/\s+/g, '-')] || '#0019a8';
+        railFlashes.push({x, y, t: performance.now(), colour});
+        railLog(`${crs} ${s.std || ''} → ${s.destination?.[0]?.locationName || '?'} (${s.operator || ''})`, colour);
+        if (audio) {
+          // Same instrument as the tube side; pitch from latitude across GB.
+          const p = (merc(st.lat) - railBounds.yMin) / (railBounds.yMax - railBounds.yMin);
+          const f = pitchAt(p);
+          const pan = Math.max(-1, Math.min(1,
+            ((st.lon - railBounds.xMin) / (railBounds.xMax - railBounds.xMin)) * 2 - 1)) * .8;
+          playBell(f, pan, .25 * (document.getElementById('vol').value / 100) * eqGain(f));
+        }
+      }
+    } catch (e) { failed++; }
+  }
+  const cut = Date.now() - 3600000;
+  for (const [k, t] of railSeen) if (t < cut) railSeen.delete(k);
+  railStatsEl.textContent = `${RAIL_STATIONS.length} stations polled · ${fired} new departures · `
+    + `${failed} failed · ${railSeen.size} tracked`;
+  railTimer = setTimeout(railPoll, 60000);
+}
+document.getElementById('railSave').onclick = async () => {
+  const base = document.getElementById('railBase').value.trim().replace(/\/$/, '');
+  const key = document.getElementById('railKey').value.trim();
+  localStorage.setItem('nrBase', base); localStorage.setItem('nrKey', key);
+  const msg = document.getElementById('railKeyMsg');
+  msg.textContent = 'testing…';
+  try {
+    const r = await fetch(`${base}/departures/KGX/3?accessToken=${encodeURIComponent(key)}`);
+    const body = await r.text();
+    msg.textContent = r.ok ? `OK — ${JSON.parse(body).trainServices?.length ?? 0} services at King's Cross`
+                           : `HTTP ${r.status}: ${body.slice(0, 90)}`;
+  } catch (e) { msg.textContent = `failed: ${e.message}`; }
+};
+document.getElementById('railStart').onclick = async function () {
+  if (railRunning) { railRunning = false; clearTimeout(railTimer);
+    this.textContent = '▶ Start listening'; railStatsEl.textContent = 'stopped'; return; }
+  await ensureAudio();
+  railRunning = true; this.textContent = '⏸ Stop';
+  railDraw(); railPoll();
+};
+document.getElementById('railFit').onclick = () => railFit();
+document.getElementById('railAll').onclick = () => {
+  for (const k of Object.keys(railOn)) railOn[k] = true;
+  document.querySelectorAll('#railToggles input').forEach(i => i.checked = true); railDraw();
+};
+document.getElementById('railNone').onclick = () => {
+  for (const k of Object.keys(railOn)) railOn[k] = false;
+  document.querySelectorAll('#railToggles input').forEach(i => i.checked = false); railDraw();
+};
+
+defineGroups();
+syncSegs();
+resizeCanvas();
+drawEq();
+</script>
+</body>
+</html>
